@@ -1,9 +1,7 @@
 name: Build and Push Docker Image
 
 on:
-  push:
-    tags:
-      - "v*"
+  - push
 
 jobs:
   build-and-push:
@@ -20,20 +18,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Git tag
-        id: extract_tag
-        run: echo "::set-output name=tag::${GITHUB_REF#refs/tags/}"
-      
       - name: Lowercase REPO
         id: lower-repo
         run: |
           echo "repository=${GITHUB_REPOSITORY@L}" >> $GITHUB_OUTPUT
 
+      - name: Set Docker tag
+        id: set-tag
+        run: |
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            TAG=latest
+          else
+            TAG=$(echo "${GITHUB_REF#refs/heads/}" | tr / -)
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
       - name: Build and tag Docker image
         run: |
-          docker build . -t ghcr.io/${{ steps.lower-repo.outputs.repository }}:${{ steps.extract_tag.outputs.tag }}
+          docker build . -t ghcr.io/${{ steps.lower-repo.outputs.repository }}:${{ steps.set-tag.outputs.tag }}
 
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ steps.lower-repo.outputs.repository }}:${{ steps.extract_tag.outputs.tag }}
-
+          docker push ghcr.io/${{ steps.lower-repo.outputs.repository }}:${{ steps.set-tag.outputs.tag }}
