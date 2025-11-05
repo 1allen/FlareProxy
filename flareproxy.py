@@ -2,29 +2,26 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import requests
+import socket
 
-# Get FlareSolverr URL from environment variable or use default
 FLARESOLVERR_URL = os.getenv("FLARESOLVERR_URL", "http://flaresolverr:8191/v1")
 
 
 class ProxyHTTPRequestHandler(BaseHTTPRequestHandler):
 
-    def handle_request(self):
-        """Handle the core logic for GET and CONNECT requests."""
+    def handle_get_request(self, url):
+        """Send request to FlareSolverr and return response."""
         try:
-            # Prepare the payload
             headers = {"Content-Type": "application/json"}
             data = {
                 "cmd": "request.get",
-                "url": self.path.replace("http", "https"),
+                "url": url,
                 "maxTimeout": 60000
             }
 
-            # Send the POST request to FlareSolverr
             response = requests.post(FLARESOLVERR_URL, headers=headers, json=data)
             json_response = response.json()
 
-            # Forward the response back to the client
             self.send_response(response.status_code)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -39,11 +36,45 @@ class ProxyHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         """Handle GET requests."""
-        self.handle_request()
+        url = self.path.replace("http://", "https://")
+        self.handle_get_request(url)
 
     def do_CONNECT(self):
-        """Handle CONNECT requests."""
-        self.handle_request()
+        """Handle CONNECT requests by reading the subsequent HTTP request."""
+        try:
+            host_port = self.path
+            host = host_port.split(':')[0]
+
+            self.send_response(200, 'Connection Established')
+            self.end_headers()
+
+            request_line = self.rfile.readline().decode('utf-8').strip()
+
+            if request_line:
+                parts = request_line.split(' ')
+                if len(parts) >= 2:
+                    method = parts[0]
+                    path = parts[1]
+
+                    url = f"https://{host}{path}"
+
+                    while True:
+                        header_line = self.rfile.readline().decode('utf-8').strip()
+                        if not header_line:
+                            break
+
+                    self.handle_get_request(url)
+                else:
+                    self.send_error(400, "Bad Request")
+            else:
+                self.send_error(400, "Bad Request")
+
+        except Exception as e:
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            error_message = json.dumps({"error": str(e)})
+            self.wfile.write(error_message.encode("utf-8"))
 
 
 if __name__ == "__main__":
